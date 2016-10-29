@@ -1,5 +1,7 @@
 /*++
 
+//几个回调传来的参数都是： PWDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER，要仔细研究这里面的腰带用途对架构中的一般和特殊关系的影响
+
 Copyright (c) Microsoft Corporation All Rights Reserved
 
 Module Name:
@@ -185,6 +187,7 @@ Return Value:
 
 #pragma prefast(pop) // disable:6101
 
+//回调
 NTSTATUS
 Bus_EvtDeviceListCreatePdo(
     WDFCHILDLIST DeviceList,
@@ -228,7 +231,7 @@ Return Value:
                          pDesc->SerialNo);
 }
 
-
+//子函数
 NTSTATUS
 Bus_CreatePdo(
     _In_ WDFDEVICE       Device,
@@ -270,8 +273,8 @@ Return Value:
     KdPrint(("Entered Bus_CreatePdo\n"));
 
     //
-    // Set DeviceType
-    //
+    // Set DeviceType为FILE_DEVICE_BUS_EXTENDER
+    // 
     WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_BUS_EXTENDER);
 
     //
@@ -330,7 +333,7 @@ Return Value:
     // Otherwise it will use the string for the default locale.
     // The driver can specify the driver's default locale by calling
     // WdfPdoInitSetDefaultLocale.
-    //
+    // 下面函数可以调用多次
     status = WdfPdoInitAddDeviceText(DeviceInit,
                                     &buffer,
                                     &deviceLocation,
@@ -346,7 +349,7 @@ Return Value:
     // All the state information private to the PDO will be tracked here.
     //
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&pdoAttributes, PDO_DEVICE_DATA);
-
+    //创建PDO！
     status = WdfDeviceCreate(&DeviceInit, &pdoAttributes, &hChild);
     if (!NT_SUCCESS(status)) {
         return status;
@@ -385,7 +388,7 @@ Return Value:
     powerCaps.DeviceState[PowerSystemHibernate] = PowerDeviceD3;
     powerCaps.DeviceState[PowerSystemShutdown]  = PowerDeviceD3;
 
-    WdfDeviceSetPowerCapabilities(hChild, &powerCaps);
+    WdfDeviceSetPowerCapabilities(hChild, &powerCaps);//设置power能力
 
     //
     // Create a custom interface so that other drivers can
@@ -395,7 +398,7 @@ Return Value:
 
     ToasterInterface.InterfaceHeader.Size = sizeof(ToasterInterface);
     ToasterInterface.InterfaceHeader.Version = 1;
-    ToasterInterface.InterfaceHeader.Context = (PVOID) hChild;
+    ToasterInterface.InterfaceHeader.Context = (PVOID) hChild;//这个重要
 
     //
     // Let the framework handle reference counting.
@@ -417,7 +420,7 @@ Return Value:
     // If you have multiple interfaces, you can call WdfDeviceAddQueryInterface
     // multiple times to add additional interfaces.
     //
-    status = WdfDeviceAddQueryInterface(hChild, &qiConfig);
+    status = WdfDeviceAddQueryInterface(hChild, &qiConfig);//增加接口
 
     if (!NT_SUCCESS(status)) {
         return status;
@@ -519,4 +522,3 @@ Return Value:
 
     return TRUE;
 }
-
