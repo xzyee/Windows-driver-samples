@@ -1,17 +1,11 @@
 /*++
 Copyright (c) Microsoft Corporation.  All rights reserved.
 
-    THIS CODE AND INFORMATION IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY
-    KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
-    IMPLIED WARRANTIES OF MERCHANTABILITY AND/OR FITNESS FOR A PARTICULAR
-    PURPOSE.
-
-
 Module Name:
 
     cancel.c
 
-Abstract:    Demonstrates the use of new Cancel-Safe queue
+Abstract:   Demonstrates the use of new Cancel-Safe queue
             APIs to perform queuing of IRPs without worrying about
             any synchronization issues between cancel lock in the I/O
             manager and the driver's queue lock.
@@ -22,7 +16,7 @@ Abstract:    Demonstrates the use of new Cancel-Safe queue
             Upon user request the driver reads data and records the time.
             When the next read request comes in, it checks the interval
             to see if it's reading the device too soon. If so, it pends
-            the IRP and sleeps for while and tries again.
+            the IRP and sleeps(通过timer) for while and tries again.
 
 Environment:
 
@@ -44,26 +38,6 @@ DriverEntry(
     _In_ PDRIVER_OBJECT  DriverObject,
     _In_ PUNICODE_STRING RegistryPath
    )
-/*++
-
-Routine Description:
-
-    Installable driver initialization entry point.
-    This entry point is called directly by the I/O system.
-
-Arguments:
-
-    DriverObject - pointer to the driver object
-
-    registryPath - pointer to a unicode string representing the path,
-                   to driver-specific key in the registry.
-
-Return Value:
-
-    STATUS_SUCCESS if successful,
-    STATUS_UNSUCCESSFUL otherwise
-
---*/
 {
     NTSTATUS            status = STATUS_SUCCESS;
     UNICODE_STRING      unicodeDeviceName;
@@ -79,6 +53,7 @@ Return Value:
 
     (void) RtlInitUnicodeString(&unicodeDeviceName, CSAMP_DEVICE_NAME_U);
 
+    (void) RtlInitUnicodeString(&sddlString, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
     //
     // We will create a secure deviceobject so that only processes running
     // in admin and local system account can access the device. Refer
@@ -89,21 +64,17 @@ Return Value:
     // is typically specified for the FDO in the INF file.
     //
 
-    (void) RtlInitUnicodeString(&sddlString, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
-
     status = IoCreateDeviceSecure(
                 DriverObject,
                 sizeof(DEVICE_EXTENSION),
-                &unicodeDeviceName,
+                &unicodeDeviceName, //L"\\Device\\CANCELSAMP"
                 FILE_DEVICE_UNKNOWN,
                 FILE_DEVICE_SECURE_OPEN,
                 (BOOLEAN) FALSE,
                 &sddlString,
                 (LPCGUID)&GUID_DEVCLASS_CANCEL_SAMPLE,
-                &deviceObject
+                &deviceObject //输出
                );
-
-
     if (!NT_SUCCESS(status))
     {
         return status;
@@ -116,18 +87,15 @@ Return Value:
 
     (void)RtlInitUnicodeString(&unicodeDosDeviceName, CSAMP_DOS_DEVICE_NAME_U);
 
-
+	//建立符号联系,会创建SymbolicLink，注意WDM drivers不使用这个
+	//以后可使用CSAMP_DOS_DEVICE_NAME_U来删除SymbolicLink
+	//就是以后认符号名，不认设备名的意思
     status = IoCreateSymbolicLink(
-                (PUNICODE_STRING) &unicodeDosDeviceName,
-                (PUNICODE_STRING) &unicodeDeviceName
+                (PUNICODE_STRING) &unicodeDosDeviceName,//SymbolicLinkName=L"\\DosDevices\\CancelSamp"
+                (PUNICODE_STRING) &unicodeDeviceName //DeviceName=L"\\Device\\CANCELSAMP"
                );
 
-    if (!NT_SUCCESS(status))
-    {
-        IoDeleteDevice(deviceObject);
-        return status;
-    }
-
+...
     devExtension = deviceObject->DeviceExtension;
 
     DriverObject->MajorFunction[IRP_MJ_CREATE]=
@@ -150,13 +118,13 @@ Return Value:
     // access to the device.
     //
 
-    KeInitializeSpinLock(&devExtension->DeviceLock);
+    KeInitializeSpinLock(&devExtension->DeviceLock);//串行化设备存取
 
     //
     // This is used to serailize access to the queue.
     //
 
-    KeInitializeSpinLock(&devExtension->QueueLock);
+    KeInitializeSpinLock(&devExtension->QueueLock); //串行化queue
 
 
     //
@@ -171,37 +139,37 @@ Return Value:
     // Initialize the timer object
     //
 
-    KeInitializeTimer(&devExtension->PollingTimer);
+    KeInitializeTimer(&devExtension->PollingTimer);//为了启用DPC的timer
 
     //
     // Initialize the pending Irp devicequeue
     //
 
-    InitializeListHead(&devExtension->PendingIrpQueue);
+    InitializeListHead(&devExtension->PendingIrpQueue);//IRP都放这里
 
+    //
+    // Initialize the cancel safe queue
+    //
+    IoCsqInitializeEx(&devExtension->CancelSafeQueue, //IO_CSQ,关键的腰带，系统只知道腰带，驱动知道腰带以外的东西
+                     CsampInsertIrp, //自己写的回调
+                     CsampRemoveIrp, //自己写的回调
+                     CsampPeekNextIrp,//自己写的回调
+                     CsampAcquireLock,//自己写的回调
+                     CsampReleaseLock,//自己写的回调
+                     CsampCompleteCanceledIrp);//自己写的回调
     //
     // 10 is multiplied because system time is specified in 100ns units
     //
 
     devExtension->PollingInterval.QuadPart = Int32x32To64(
-                                CSAMP_RETRY_INTERVAL, -10);
+                                CSAMP_RETRY_INTERVAL, -10); //负号代表相对
     //
     // Note down system time
     //
 
     KeQuerySystemTime (&devExtension->LastPollTime);
 
-    IoCsqInitializeEx(&devExtension->CancelSafeQueue,
-                     CsampInsertIrp,
-                     CsampRemoveIrp,
-                     CsampPeekNextIrp,
-                     CsampAcquireLock,
-                     CsampReleaseLock,
-                     CsampCompleteCanceledIrp);
-
-    CSAMP_KDPRINT(("DriverEntry Exit = %x\n", status));
-
-    ASSERT(NT_SUCCESS(status));
+...
     
     return status;
 }
@@ -213,23 +181,6 @@ CsampCreateClose(
     PDEVICE_OBJECT DeviceObject,
     PIRP Irp
    )
-/*++
-
-Routine Description:
-
-   Process the Create and close IRPs sent to this device.
-
-Arguments:
-
-   DeviceObject - pointer to a device object.
-
-   Irp - pointer to an I/O Request Packet.
-
-Return Value:
-
-      NT Status code
-
---*/
 {
     PIO_STACK_LOCATION  irpStack;
     NTSTATUS            status = STATUS_SUCCESS;
@@ -239,11 +190,9 @@ Return Value:
 
     PAGED_CODE ();
 
-    CSAMP_KDPRINT(("CsampCreateClose Enter\n"));
-
     irpStack = IoGetCurrentIrpStackLocation(Irp);
 
-    ASSERT(irpStack->FileObject != NULL);    
+    ASSERT(irpStack->FileObject != NULL);//值得注意，FileObject已经分配好了
 
     switch(irpStack->MajorFunction)
     {
@@ -258,14 +207,11 @@ Return Value:
             // required to supply a dispatch routine for IRP_MJ_CREATE.
             //
 
+			//主要用来保存一个随fileobject的锁
             fileContext = ExAllocatePoolWithQuotaTag(NonPagedPool, 
                                               sizeof(FILE_CONTEXT),
                                               TAG);
-
-            if (NULL == fileContext) {
-                status =  STATUS_INSUFFICIENT_RESOURCES;
-                break;
-            }
+。。。
 
             IoInitializeRemoveLock(&fileContext->FileRundownLock, TAG, 0, 0);
 
@@ -277,9 +223,8 @@ Return Value:
             //
             // Store the context in the FileObject's scratch area.
             //
-            irpStack->FileObject->FsContext = (PVOID) fileContext;
+            irpStack->FileObject->FsContext = (PVOID) fileContext;//保存，随fileobject走了
             
-            CSAMP_KDPRINT(("IRP_MJ_CREATE\n"));
             break;
 
         case IRP_MJ_CLOSE:
@@ -294,17 +239,15 @@ Return Value:
             // is the place that a driver should "undo" whatever has been done
             // in the routine for IRP_MJ_CREATE.
             //
-            
             fileContext = irpStack->FileObject->FsContext;
             
             ExFreePoolWithTag(fileContext, TAG);
 
-            CSAMP_KDPRINT(("IRP_MJ_CLOSE\n"));
             break;
 
         default:
-            CSAMP_KDPRINT((" Invalid CreateClose Parameter\n"));
-            status = STATUS_INVALID_PARAMETER;
+
+            status = STATUS_INVALID_PARAMETER;//不应该
             break;
     }
 
@@ -315,8 +258,6 @@ Return Value:
     Irp->IoStatus.Status = status;
     Irp->IoStatus.Information = 0;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
-
-    CSAMP_KDPRINT((" CsampCreateClose Exit = %x\n", status));
 
     return status;
 }
@@ -346,27 +287,23 @@ CsampRead(
     PDEVICE_EXTENSION   devExtension;
     PIO_STACK_LOCATION  irpStack;
     LARGE_INTEGER       currentTime;
-    PVOID               readBuffer;
     PFILE_CONTEXT       fileContext;
+    PVOID               readBuffer;
+
     BOOLEAN             inCriticalRegion;
 
     PAGED_CODE();
 
-    CSAMP_KDPRINT(("--->CsampReadReport irp 0x%p\n", Irp));
-
-    //
-    // Get a pointer to the device extension.
-    //
     devExtension = DeviceObject->DeviceExtension;
     inCriticalRegion = FALSE;
 
     irpStack = IoGetCurrentIrpStackLocation(Irp);
 
-    ASSERT(irpStack->FileObject != NULL);
+    ASSERT(irpStack->FileObject != NULL);//读的话不带FileObject怎么行！
 
-    fileContext = irpStack->FileObject->FsContext;    
+    fileContext = irpStack->FileObject->FsContext;//要找锁
 
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);//取得锁，因为不止一个fileobject会进入本函数
     if (!NT_SUCCESS(status)) {
         //
         // Lock is in a removed state. That means we have already received 
@@ -402,8 +339,11 @@ CsampRead(
 
     readBuffer = Irp->AssociatedIrp.SystemBuffer;
     
-    *((PULONG)readBuffer) = ((currentTime.LowPart/13)%2);
+    *((PULONG)readBuffer) = ((currentTime.LowPart/13)%2);//模拟读到了东西
 
+    
+    // To avoid the thread from being suspended after it has queued the IRP and
+    // before it signalled the semaphore, we will enter critical region.
     //
     // If the thread is suspended right after the queue is marked busy due to 
     // insert, it will prevent I/Os from other threads being processed leading 
@@ -411,7 +351,7 @@ CsampRead(
     // entering critical region.
     //
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
-    KeEnterCriticalRegion();
+    KeEnterCriticalRegion(); //提升IRQL，这里的逻辑很复杂，见上面的解释
     inCriticalRegion = TRUE;
     
     //
@@ -424,13 +364,14 @@ CsampRead(
                                         Irp, NULL, NULL))) {
         IoMarkIrpPending(Irp);
 
-        CsampInitiateIo(DeviceObject);
+        CsampInitiateIo(DeviceObject);//就在这个线程干活了
     } else {
         //
         // Do not touch the IRP once it has been queued because another thread
         // could remove the IRP and complete it before this one gets to run.
         //
         // DO_NOTHING();
+		//不属于本线程管了
     }
     if (inCriticalRegion == TRUE) {
         KeLeaveCriticalRegion();
@@ -441,8 +382,6 @@ CsampRead(
     // is handled.
     //
     IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);
-    
-    CSAMP_KDPRINT(("<---CsampReadReport\n"));
 
     return STATUS_PENDING;
 }
@@ -472,23 +411,21 @@ CsampInitiateIo(
     PDEVICE_EXTENSION   devExtension = DeviceObject->DeviceExtension;
     PIRP                irp = NULL;
 
-    CSAMP_KDPRINT(("--> CsampInitiateIo\n"));
-
     irp = devExtension->CurrentIrp;
 
-    for(;;) {
+    for(;;) { //注意这里有个循环，意思是要干就多干一会儿
 
         ASSERT(irp != NULL && irp == devExtension->CurrentIrp);
 
-        status = CsampPollDevice(DeviceObject, irp);
+        status = CsampPollDevice(DeviceObject, irp); //干活
         if (status == STATUS_PENDING)
         {
             //
             // Oops, polling too soon. Start the timer to retry the operation.
             //
             KeSetTimer(&devExtension->PollingTimer, 
-                       devExtension->PollingInterval,
-                       &devExtension->PollingDpc);
+                       devExtension->PollingInterval, //DueTime
+                       &devExtension->PollingDpc); //Dpc对象
             break;
         }
         else
@@ -501,7 +438,8 @@ CsampInitiateIo(
             CSAMP_KDPRINT(("completing irp :0x%p\n", irp));
             IoCompleteRequest (irp, IO_NO_INCREMENT);
 
-            irp = IoCsqRemoveNextIrp(&devExtension->CancelSafeQueue, NULL);
+			//有了自己写的回调函数后，就可以轻松使用下面这个函数了！
+            irp = IoCsqRemoveNextIrp(&devExtension->CancelSafeQueue, NULL); 
 
             if (irp == NULL) {
                 break;
@@ -509,8 +447,6 @@ CsampInitiateIo(
         }
 
     }
-
-    CSAMP_KDPRINT(("<---CsampInitiateIo\n"));
 
     return;
 }
@@ -545,15 +481,12 @@ CsampPollingTimerDpc(
     UNREFERENCED_PARAMETER(SystemArgument1);
     UNREFERENCED_PARAMETER(SystemArgument2);
 
-    CSAMP_KDPRINT(("---> CsampPollingTimerDpc\n"));
-
     _Analysis_assume_(Context != NULL);
 
     deviceObject = (PDEVICE_OBJECT)Context;
 
-    CsampInitiateIo(deviceObject);
+    CsampInitiateIo(deviceObject);//干活
 
-    CSAMP_KDPRINT(("<--- CsampPollingTimerDpc\n"));
 }
 
 _Use_decl_annotations_
@@ -593,8 +526,6 @@ Return Value:
     PIO_STACK_LOCATION  irpStack;
     PFILE_CONTEXT       fileContext;
     NTSTATUS            status;
-    
-    CSAMP_KDPRINT(("--->CsampCleanupIrp\n"));
 
     devExtension = DeviceObject->DeviceExtension;
 
@@ -607,14 +538,14 @@ Return Value:
     // This acquire cannot fail because you cannot get more than one
     // cleanup for the same handle.
     //
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp); //抢这个锁，也不知是哪个fileobject的，即抢谁都是抢
     ASSERT(NT_SUCCESS(status));
 
     //
     // Wait for all the threads that are currently dispatching to exit and 
     // prevent any threads dispatching I/O on the same handle beyond this point.
     //
-    IoReleaseRemoveLockAndWait(&fileContext->FileRundownLock, Irp);
+    IoReleaseRemoveLockAndWait(&fileContext->FileRundownLock, Irp);//释放和等待
 
     pendingIrp = IoCsqRemoveNextIrp(&devExtension->CancelSafeQueue,
                                     irpStack->FileObject);
@@ -787,6 +718,7 @@ Return Value:
     return;
 }
 
+//csq回调函数，本驱动不直接用
 NTSTATUS CsampInsertIrp (
     _In_ PIO_CSQ   Csq,
     _In_ PIRP              Irp,
@@ -805,7 +737,7 @@ NTSTATUS CsampInsertIrp (
     //
 #pragma prefast(suppress: __WARNING_BUFFER_UNDERFLOW, "Underflow using expression 'devExtension->CurrentIrp")
     if (!devExtension->CurrentIrp) {
-        devExtension->CurrentIrp = Irp;
+        devExtension->CurrentIrp = Irp; //塞不进去就放着这里，好
         return STATUS_UNSUCCESSFUL;
     }
 
@@ -815,20 +747,21 @@ NTSTATUS CsampInsertIrp (
     return STATUS_SUCCESS;
 }
 
+//csq回调函数，本驱动不直接用
 VOID CsampRemoveIrp(
     _In_  PIO_CSQ Csq,
     _In_  PIRP    Irp
    )
 {
     UNREFERENCED_PARAMETER(Csq);
-    RemoveEntryList(&Irp->Tail.Overlay.ListEntry);
+    RemoveEntryList(&Irp->Tail.Overlay.ListEntry);//没想到移除确这么简单
 }
 
-
+//csq回调函数，本驱动不直接用
 PIRP CsampPeekNextIrp(
     _In_  PIO_CSQ Csq,
     _In_  PIRP    Irp,
-    _In_  PVOID   PeekContext
+    _In_  PVOID   PeekContext //需匹配这个
    )
 {
     PDEVICE_EXTENSION      devExtension;
@@ -867,7 +800,7 @@ PIRP CsampPeekNextIrp(
         //
 
         if (PeekContext) {
-            if (irpStack->FileObject == (PFILE_OBJECT) PeekContext) {
+            if (irpStack->FileObject == (PFILE_OBJECT) PeekContext) { //匹配才好
                 break;
             }
         } else {
@@ -898,7 +831,7 @@ PIRP CsampPeekNextIrp(
 //
 // The annotations reflect these changes and requirments.
 //
-
+//csq回调函数，本驱动不直接用
 _IRQL_raises_(DISPATCH_LEVEL)
 _IRQL_requires_max_(DISPATCH_LEVEL)
 _Acquires_lock_(CONTAINING_RECORD(Csq,DEVICE_EXTENSION, CancelSafeQueue)->QueueLock)
@@ -929,7 +862,7 @@ VOID CsampAcquireLock(
 //
 // The annotations reflect these changes and requirments.
 //
-
+//csq回调函数，本驱动不直接用
 _IRQL_requires_(DISPATCH_LEVEL)
 _Releases_lock_(CONTAINING_RECORD(Csq,DEVICE_EXTENSION, CancelSafeQueue)->QueueLock)
 VOID CsampReleaseLock(
@@ -949,6 +882,7 @@ VOID CsampReleaseLock(
     KeReleaseSpinLock(&devExtension->QueueLock, Irql);
 }
 
+//csq回调函数，本驱动不直接用
 VOID CsampCompleteCanceledIrp(
     _In_  PIO_CSQ             pCsq,
     _In_  PIRP                Irp
