@@ -36,11 +36,14 @@ Environment:
 #pragma alloc_text(PAGE, FireflySetFeature)
 #endif
 
+//用到两个IOCTLs：
+//IOCTL_HID_GET_COLLECTION_INFORMATION
+//IOCTL_HID_GET_COLLECTION_DESCRIPTOR
 NTSTATUS
 FireflySetFeature(
-    IN  PDEVICE_CONTEXT DeviceContext,
-    IN  UCHAR           PageId,
-    IN  USHORT          FeatureId,
+    IN  PDEVICE_CONTEXT DeviceContext, //需要名字来Open远程iotartget，用这个做参数比较好
+    IN  UCHAR           PageId,    //就是UsagePage
+    IN  USHORT          FeatureId, //就是Usage
     IN  BOOLEAN         EnableFeature
     )
 /*++
@@ -88,6 +91,7 @@ Return Value:
     report = NULL;
     hidTarget = NULL;
     
+    //下面注意打开远程iotarget，不是本地iotarget
     status = WdfIoTargetCreate(WdfObjectContextGetObject(DeviceContext), 
                             WDF_NO_OBJECT_ATTRIBUTES, 
                             &hidTarget);    
@@ -102,7 +106,7 @@ Return Value:
     WDF_IO_TARGET_OPEN_PARAMS_INIT_OPEN_BY_NAME(
                                     &openParams,
                                     &DeviceContext->PdoName,
-                                    FILE_WRITE_ACCESS);
+                                    FILE_WRITE_ACCESS); //为什么只有写的权限？
 
     //
     // We will let the framework to respond automatically to the pnp
@@ -118,7 +122,7 @@ Return Value:
     
 
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&outputDescriptor,
-                                      (PVOID) &collectionInformation,
+                                      (PVOID) &collectionInformation, //real buffer
                                       sizeof(HID_COLLECTION_INFORMATION));
 
     //
@@ -128,7 +132,7 @@ Return Value:
                                   NULL,
                                   IOCTL_HID_GET_COLLECTION_INFORMATION,
                                   NULL,
-                                  &outputDescriptor,
+                                  &outputDescriptor, //实际是&collectionInformation
                                   NULL,
                                   NULL);
 
@@ -138,7 +142,7 @@ Return Value:
     }
 
     preparsedData = (PHIDP_PREPARSED_DATA) ExAllocatePoolWithTag(
-        NonPagedPoolNx, collectionInformation.DescriptorSize, 'ffly');
+        NonPagedPoolNx, collectionInformation.DescriptorSize, 'ffly');//要collectionInformation.DescriptorSize信息
 
     if (preparsedData == NULL) {
         status = STATUS_INSUFFICIENT_RESOURCES;
@@ -146,14 +150,14 @@ Return Value:
     }
 
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&outputDescriptor,
-                                      (PVOID) preparsedData,
+                                      (PVOID) preparsedData,//real buffer
                                       collectionInformation.DescriptorSize);
 
     status = WdfIoTargetSendIoctlSynchronously(hidTarget,
                                   NULL,
                                   IOCTL_HID_GET_COLLECTION_DESCRIPTOR,
                                   NULL,
-                                  &outputDescriptor,
+                                  &outputDescriptor,//实际是preparsedData
                                   NULL,
                                   NULL);
 
@@ -167,7 +171,7 @@ Return Value:
     //
     RtlZeroMemory(&caps, sizeof(HIDP_CAPS));
 
-    status = HidP_GetCaps(preparsedData, &caps);
+    status = HidP_GetCaps(preparsedData, &caps);//取caps
 
     if (!NT_SUCCESS(status)) {
 
@@ -178,7 +182,7 @@ Return Value:
     // Create a report to send to the device.
     //
     report = (PCHAR) ExAllocatePoolWithTag(
-        NonPagedPoolNx, caps.FeatureReportByteLength, 'ffly');
+        NonPagedPoolNx, caps.FeatureReportByteLength, 'ffly');//要caps.FeatureReportByteLength信息
 
     if (report == NULL) {
         goto ExitAndFree;
@@ -204,9 +208,9 @@ Return Value:
             PageId,
             0,
             &usage, // pointer to the usage list
-            &usageLength, // number of usages in the usage list
+            &usageLength, //1， number of usages in the usage list
             preparsedData,
-            report,
+            report, //目前全是0，等这个函数设置呢
             caps.FeatureReportByteLength
             );
         if (!NT_SUCCESS(status)) {
@@ -216,12 +220,12 @@ Return Value:
     }
 
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputDescriptor,
-                                      report,
+                                      report,//real buffer
                                       caps.FeatureReportByteLength);
     status = WdfIoTargetSendIoctlSynchronously(hidTarget,
                                   NULL,
                                   IOCTL_HID_SET_FEATURE,
-                                  &inputDescriptor,
+                                  &inputDescriptor, //实际是&report
                                   NULL,
                                   NULL,
                                   NULL);
