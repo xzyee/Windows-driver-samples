@@ -29,6 +29,7 @@ Environment:
 #pragma alloc_text(PAGE, FireFlyEvtDeviceAdd)
 #endif
 
+//找到刚创建的device的PDO名字很重要，将来通过open远程iotarget进行发送信息
 NTSTATUS
 FireFlyEvtDeviceAdd(
     WDFDRIVER Driver,
@@ -67,7 +68,7 @@ Return Value:
     //
     // Configure the device as a filter driver
     //
-    WdfFdoInitSetFilter(DeviceInit);
+    WdfFdoInitSetFilter(DeviceInit);//必须
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, DEVICE_CONTEXT);
 
@@ -108,7 +109,7 @@ Return Value:
                                     DevicePropertyPhysicalDeviceObjectName,
                                     NonPagedPoolNx,
                                     &attributes,
-                                    &memory);
+                                    &memory); //创建的内存对象,含有pdo名字
 
     if (!NT_SUCCESS(status)) {
         KdPrint(("FireFly: WdfDeviceAllocAndQueryProperty failed 0x%x\n", status));        
