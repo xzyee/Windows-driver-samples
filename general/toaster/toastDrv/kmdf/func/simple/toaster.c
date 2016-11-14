@@ -35,7 +35,8 @@ Environment:
 #pragma alloc_text (PAGE, ToasterEvtIoDeviceControl)
 #endif
 
-
+//几乎是个空壳驱动，支持读、写和ioCtrol
+//应用程序可以打开接口来使用本驱动
 NTSTATUS
 DriverEntry(
     IN PDRIVER_OBJECT  DriverObject,
