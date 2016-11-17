@@ -16,3 +16,8 @@ Related topics
 
 [UMDF HID Minidriver IOCTLs](http://msdn.microsoft.com/en-us/library/windows/hardware/hh463977)
 
+一些IOCTL_HID_XXX会用到HID_XFER_PACKET结构，里面两个辅助函数比较拥有
+如何一个setfeature函数实现多种设置功能：自定义子控制码
+没有真正和设备通信，这里只是模拟演示
+对理解IOCTL_HID_XXX比较有帮助，这这里演示的是HID Minidriver IOCTLs，还有一类是HIDCLASS IOCTLs，这里没有涉及
+
