@@ -1,15 +1,11 @@
 /*++
 Copyright (c) Microsoft Corporation.  All rights reserved.
-
 Module Name:
-
     cancel.c
-
 Abstract:   Demonstrates the use of new Cancel-Safe queue
             APIs to perform queuing of IRPs without worrying about
             any synchronization issues between cancel lock in the I/O
             manager and the driver's queue lock.
-
             This driver is written for an hypothetical data acquisition
             device that requires polling at a regular interval.
             The device has some settling period between two reads.
@@ -17,11 +13,8 @@ Abstract:   Demonstrates the use of new Cancel-Safe queue
             When the next read request comes in, it checks the interval
             to see if it's reading the device too soon. If so, it pends
             the IRP and sleeps(通过timer) for while and tries again.
-
 Environment:
-
     Kernel mode
-
 --*/
 
 #include "cancel.h"
@@ -120,7 +113,7 @@ DriverEntry(
 
     KeInitializeSpinLock(&devExtension->DeviceLock);//串行化设备存取
 
-    //
+
     // This is used to serailize access to the queue.
     //
 
@@ -145,12 +138,12 @@ DriverEntry(
     // Initialize the pending Irp devicequeue
     //
 
-    InitializeListHead(&devExtension->PendingIrpQueue);//IRP都放这里
+    InitializeListHead(&devExtension->PendingIrpQueue);
 
     //
     // Initialize the cancel safe queue
     //
-    IoCsqInitializeEx(&devExtension->CancelSafeQueue, //IO_CSQ,关键的腰带，系统只知道腰带，驱动知道腰带以外的东西
+    IoCsqInitializeEx(&devExtension->CancelSafeQueue, //IO_CSQ,关键的腰带，公共api只知道腰带，驱动需要知道腰带以外的东西
                      CsampInsertIrp, //自己写的回调
                      CsampRemoveIrp, //自己写的回调
                      CsampPeekNextIrp,//自己写的回调
@@ -247,7 +240,7 @@ CsampCreateClose(
 
         default:
 
-            status = STATUS_INVALID_PARAMETER;//不应该
+            status = STATUS_INVALID_PARAMETER;//never be here
             break;
     }
 
@@ -270,16 +263,11 @@ CsampRead(
 )
  /*++
      Routine Description:
-
            Read disptach routine
-
      Arguments:
-
          DeviceObject - pointer to a device object.
                  Irp             - pointer to current Irp
-
      Return Value:
-
          NT status code.
 --*/
 {
@@ -303,7 +291,7 @@ CsampRead(
 
     fileContext = irpStack->FileObject->FsContext;//要找锁
 
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);//取得锁，因为不止一个fileobject会进入本函数
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);
     if (!NT_SUCCESS(status)) {
         //
         // Lock is in a removed state. That means we have already received 
@@ -392,18 +380,11 @@ CsampInitiateIo(
 )
  /*++
      Routine Description:
-
            Performs the actual I/O operations.
-
      Arguments:
-
          DeviceObject - pointer to a device object.
-
      Return Value:
-
          NT status code.
-
-
 --*/
 
 {
@@ -461,17 +442,13 @@ CsampPollingTimerDpc(
 )
  /*++
      Routine Description:
-
          CustomTimerDpc routine to process Irp that are
          waiting in the PendingIrpQueue
-
      Arguments:
-
          DeviceObject    - pointer to DPC object
          Context         - pointer to device object
          SystemArgument1 -  undefined
          SystemArgument2 -  undefined
-
      Return Value:
 --*/
 {
@@ -496,7 +473,6 @@ CsampCleanup(
     PIRP Irp
 )
 /*++
-
 Routine Description:
     This dispatch routine is called when the last handle (in
     the whole system) to a file object is closed. In other words, the open
@@ -509,14 +485,10 @@ Routine Description:
     IRP_MJ_CLEANUP call. Of course, IRPs belonging to other file objects should
     not be canceled. Also, if an outstanding IRP is completed immediately, the
     driver does not have to cancel it.
-
 Arguments:
-
     DeviceObject     -- pointer to the device object
     Irp             -- pointer to the requesing Irp
-
 Return Value:
-
     STATUS_SUCCESS   -- if the poll succeeded,
 --*/
 {
@@ -538,7 +510,7 @@ Return Value:
     // This acquire cannot fail because you cannot get more than one
     // cleanup for the same handle.
     //
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp); //抢这个锁，也不知是哪个fileobject的，即抢谁都是抢
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp); 
     ASSERT(NT_SUCCESS(status));
 
     //
@@ -582,24 +554,16 @@ CsampPollDevice(
    )
 
 /*++
-
 Routine Description:
-
    Pools for data
-
 Arguments:
-
     DeviceObject     -- pointer to the device object
     Irp             -- pointer to the requesing Irp
-
-
 Return Value:
-
     STATUS_SUCCESS   -- if the poll succeeded,
     STATUS_TIMEOUT   -- if the poll failed (timeout),
                         or the checksum was incorrect
     STATUS_PENDING   -- if polled too soon
-
 --*/
 {
     PINPUT_DATA         pInput;
@@ -662,17 +626,11 @@ CsampUnload(
     _In_ PDRIVER_OBJECT DriverObject
    )
 /*++
-
 Routine Description:
-
     Free all the allocated resources, etc.
-
 Arguments:
-
     DriverObject - pointer to a driver object.
-
 Return Value:
-
     VOID
 --*/
 {
@@ -754,7 +712,7 @@ VOID CsampRemoveIrp(
    )
 {
     UNREFERENCED_PARAMETER(Csq);
-    RemoveEntryList(&Irp->Tail.Overlay.ListEntry);//没想到移除确这么简单
+    RemoveEntryList(&Irp->Tail.Overlay.ListEntry);
 }
 
 //csq回调函数，本驱动不直接用
@@ -897,3 +855,5 @@ VOID CsampCompleteCanceledIrp(
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
 }
 
+Contact GitHub API Training Shop Blog About
+? 2016 GitHub, Inc. Terms Privacy Security Status Help
