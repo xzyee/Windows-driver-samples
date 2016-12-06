@@ -57,7 +57,7 @@ DriverEntry(
     // is typically specified for the FDO in the INF file.
     //
 
-    status = IoCreateDeviceSecure(
+    status = IoCreateDeviceSecure( //创建有名字的和安全的
                 DriverObject,
                 sizeof(DEVICE_EXTENSION),
                 &unicodeDeviceName, //L"\\Device\\CANCELSAMP"
@@ -80,8 +80,8 @@ DriverEntry(
 
     (void)RtlInitUnicodeString(&unicodeDosDeviceName, CSAMP_DOS_DEVICE_NAME_U);
 
-	//建立符号联系,会创建SymbolicLink，注意WDM drivers不使用这个
-	//以后可使用CSAMP_DOS_DEVICE_NAME_U来删除SymbolicLink
+	//建立符号联系,会创建SymbolicLink，注意WDM drivers会创建接口
+        //以后可使用CSAMP_DOS_DEVICE_NAME_U来删除SymbolicLink
 	//就是以后认符号名，不认设备名的意思
     status = IoCreateSymbolicLink(
                 (PUNICODE_STRING) &unicodeDosDeviceName,//SymbolicLinkName=L"\\DosDevices\\CancelSamp"
@@ -200,7 +200,7 @@ CsampCreateClose(
             // required to supply a dispatch routine for IRP_MJ_CREATE.
             //
 
-			//主要用来保存一个随fileobject的锁
+	    //主要用来保存一个随fileobject的锁
             fileContext = ExAllocatePoolWithQuotaTag(NonPagedPool, 
                                               sizeof(FILE_CONTEXT),
                                               TAG);
@@ -291,7 +291,7 @@ CsampRead(
 
     fileContext = irpStack->FileObject->FsContext;//要找锁
 
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);//为了cleanup
     if (!NT_SUCCESS(status)) {
         //
         // Lock is in a removed state. That means we have already received 
@@ -339,7 +339,7 @@ CsampRead(
     // entering critical region.
     //
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
-    KeEnterCriticalRegion(); //提升IRQL，这里的逻辑很复杂，见上面的解释
+    KeEnterCriticalRegion(); //提升IRQL，问题是提升的IRQL还没有APC高，该如何解释？
     inCriticalRegion = TRUE;
     
     //
@@ -350,9 +350,8 @@ CsampRead(
     //
     if (!NT_SUCCESS(IoCsqInsertIrpEx(&devExtension->CancelSafeQueue,
                                         Irp, NULL, NULL))) {
-        IoMarkIrpPending(Irp);
-
-        CsampInitiateIo(DeviceObject);//就在这个线程干活了
+        IoMarkIrpPending(Irp);//这句话 很关键
+        CsampInitiateIo(DeviceObject);//就在这个里干活了
     } else {
         //
         // Do not touch the IRP once it has been queued because another thread
@@ -369,13 +368,12 @@ CsampRead(
     // lock is meant to rundown currently dispatching threads when the cleanup
     // is handled.
     //
-    IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);
-
-    return STATUS_PENDING;
+    IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);//为了cleanup
+    return STATUS_PENDING;//因为调用了IoMarkIrpPending，必须返回这个
 }
 
 VOID
-CsampInitiateIo(
+CsampInitiateIo( //发起IO
     _In_ PDEVICE_OBJECT DeviceObject
 )
  /*++
@@ -406,7 +404,7 @@ CsampInitiateIo(
             //
             KeSetTimer(&devExtension->PollingTimer, 
                        devExtension->PollingInterval, //DueTime
-                       &devExtension->PollingDpc); //Dpc对象
+                       &devExtension->PollingDpc); //Dpc对象，给了这个就会干活，不要什么函数，什么context之类的东西
             break;
         }
         else
@@ -419,7 +417,7 @@ CsampInitiateIo(
             CSAMP_KDPRINT(("completing irp :0x%p\n", irp));
             IoCompleteRequest (irp, IO_NO_INCREMENT);
 
-			//有了自己写的回调函数后，就可以轻松使用下面这个函数了！
+	    //有了自己写的回调函数后，就可以轻松使用下面这个函数了！
             irp = IoCsqRemoveNextIrp(&devExtension->CancelSafeQueue, NULL); 
 
             if (irp == NULL) {
@@ -460,8 +458,7 @@ CsampPollingTimerDpc(
 
     _Analysis_assume_(Context != NULL);
 
-    deviceObject = (PDEVICE_OBJECT)Context;
-
+    deviceObject = (PDEVICE_OBJECT)Context;//不要试图用irp作为context，没有比deviceobject更好的context了
     CsampInitiateIo(deviceObject);//干活
 
 }
