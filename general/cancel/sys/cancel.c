@@ -99,10 +99,10 @@ Return Value:
     // is typically specified for the FDO in the INF file.
     //
 
-    status = IoCreateDeviceSecure(
+    status = IoCreateDeviceSecure( //创建有名称的设备，如果创建无名设备，请用IoCreateDevice
                 DriverObject,
                 sizeof(DEVICE_EXTENSION),
-                &unicodeDeviceName,
+                &unicodeDeviceName, //使用了设备名，可以理解为：这是传统设备，不得已？
                 FILE_DEVICE_UNKNOWN,
                 FILE_DEVICE_SECURE_OPEN,
                 (BOOLEAN) FALSE,
@@ -219,7 +219,7 @@ Return Value:
                             THREAD_ALL_ACCESS,
                             NULL,
                             KernelMode,
-                            &devExtension->ThreadObject,
+                            &devExtension->ThreadObject, //输出，后面结束线程要用到
                             NULL );
 
     ZwClose(threadHandle);
@@ -381,7 +381,7 @@ CsampRead(
 
     fileContext = irpStack->FileObject->FsContext;    
 
-    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);
+    status = IoAcquireRemoveLock(&fileContext->FileRundownLock, Irp);//为了能cleanup
     if (!NT_SUCCESS(status)) {
         //
         // Lock is in a removed state. That means we have already received 
@@ -399,7 +399,7 @@ CsampRead(
     {
         Irp->IoStatus.Status = status = STATUS_BUFFER_TOO_SMALL;
         Irp->IoStatus.Information  = 0;
-        IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);
+        IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp); //不要忘了
         IoCompleteRequest (Irp, IO_NO_INCREMENT);
         return status;
     }
@@ -416,14 +416,13 @@ CsampRead(
 
     readBuffer = Irp->AssociatedIrp.SystemBuffer;
     
-    *((PULONG)readBuffer) = ((currentTime.LowPart/13)%2);
-
+    *((PULONG)readBuffer) = ((currentTime.LowPart/13)%2);//模拟读
     //
     // To avoid the thread from being suspended after it has queued the IRP and
     // before it signalled the semaphore, we will enter critical region.
     //
     ASSERT(KeGetCurrentIrql() <= APC_LEVEL);
-    KeEnterCriticalRegion();
+    KeEnterCriticalRegion(); //这里有疑问：进入的CriticalRegion比APC还低，怎么弄？？？
     inCriticalRegion = TRUE;
 
     //
@@ -456,7 +455,7 @@ CsampRead(
     // lock is meant to rundown currently dispatching threads when the cleanup
     // is handled.
     //
-    IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);
+    IoReleaseRemoveLock(&fileContext->FileRundownLock, Irp);//为了能cleanup
     
     return STATUS_PENDING;
 }
@@ -483,7 +482,7 @@ Arguments:
     PIRP Irp;
     NTSTATUS    Status;
 
-    KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY );
+    KeSetPriorityThread(KeGetCurrentThread(), LOW_REALTIME_PRIORITY );//LOW_REALTIME_PRIORITY
 
     //
     // Now enter the main IRP-processing loop
@@ -506,7 +505,7 @@ Arguments:
         //
 
         if ( DevExtension->ThreadShouldStop ) {
-            PsTerminateSystemThread( STATUS_SUCCESS );
+            PsTerminateSystemThread( STATUS_SUCCESS );//消失了，没有返回值
         }
 
         //
@@ -514,7 +513,7 @@ Arguments:
         //
         Irp = IoCsqRemoveNextIrp(&DevExtension->CancelSafeQueue, NULL);
 
-        if (!Irp) {
+        if (!Irp) { //这是有可能的，没关系，没关系
             CSAMP_KDPRINT(("Oops, a queued irp got cancelled\n"));
             continue; // go back to waiting
         }
@@ -530,8 +529,7 @@ Arguments:
                 // Device is not ready, so sleep for a while and try again.
                 //
                 KeDelayExecutionThread(KernelMode, FALSE,
-                                        &DevExtension->PollingInterval);
-
+                                        &DevExtension->PollingInterval);//这个函数以前没见过
             } else {
 
                 //
@@ -766,14 +764,13 @@ Return Value:
     //
     // Wait for the thread to terminate
     //
-    KeWaitForSingleObject(devExtension->ThreadObject,
+    KeWaitForSingleObject(devExtension->ThreadObject,//看看线程句柄转化为对象带来什么好处了！
                         Executive,
                         KernelMode,
                         FALSE,
                         NULL );
 
-    ObDereferenceObject(devExtension->ThreadObject);
-
+    ObDereferenceObject(devExtension->ThreadObject);//别忘了
     //
     // Create counted string version of our Win32 device name.
     //
@@ -799,7 +796,7 @@ VOID CsampInsertIrp (
                                  DEVICE_EXTENSION, CancelSafeQueue);
 
     InsertTailList(&devExtension->PendingIrpQueue,
-                         &Irp->Tail.Overlay.ListEntry);
+                         &Irp->Tail.Overlay.ListEntry); //要点
 }
 
 VOID CsampRemoveIrp(
