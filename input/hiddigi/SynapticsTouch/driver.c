@@ -1,21 +1,13 @@
 /*++
     Copyright (c) Microsoft Corporation. All Rights Reserved. 
     Sample code. Dealpoint ID #843729.
-
     Module Name:
-
         driver.c
-
     Abstract:
-
         Contains driver-specific WDF functions
-
     Environment:
-
         Kernel mode
-
     Revision History:
-
 --*/
 
 #include "internal.h"
@@ -37,22 +29,15 @@ DriverEntry (
     IN PUNICODE_STRING RegistryPath
     )
 /*++
-
 Routine Description:
-
     Installable driver initialization entry point.
     This entry point is called directly by the I/O system.
-
 Arguments:
-
     DriverObject - pointer to the driver object
     RegistryPath - pointer to a unicode string representing the path,
                    to driver-specific key in the registry.
-
 Return Value:
-
     STATUS_SUCCESS if successful, error code otherwise.
-
 --*/
 {
     WDF_OBJECT_ATTRIBUTES attributes;
@@ -105,23 +90,16 @@ OnDeviceAdd(
     IN PWDFDEVICE_INIT DeviceInit
     )
 /*++
-
 Routine Description:
-
     OnDeviceAdd is called by the framework in response to AddDevice
     call from the PnP manager when a device is found. We create and 
     initialize a WDF device object to represent the new instance of 
     an touch device. Per-device objects are also instantiated.
-
 Arguments:
-
     Driver - Handle to a framework driver object created in DriverEntry
     DeviceInit - Pointer to a framework-allocated WDFDEVICE_INIT structure.
-
 Return Value:
-
     NTSTATUS indicating success or failure
-
 --*/
 {
     WDF_OBJECT_ATTRIBUTES attributes;
@@ -133,7 +111,7 @@ Return Value:
     NTSTATUS status;
     
     UNREFERENCED_PARAMETER(Driver);
-    PAGED_CODE();
+    PAGED_CODE();//注意有这句
     
     //
     // Relinquish power policy ownership because HIDCLASS acts a power
@@ -187,7 +165,7 @@ Return Value:
         &queueConfig, 
         WdfIoQueueDispatchParallel);
 
-    queueConfig.EvtIoInternalDeviceControl = OnInternalDeviceControl;
+    queueConfig.EvtIoInternalDeviceControl = OnInternalDeviceControl;//来自HID Class的都是内部控制码
     queueConfig.PowerManaged = WdfFalse;
 
     status = WdfIoQueueCreate(
@@ -214,7 +192,7 @@ Return Value:
     //
     WDF_IO_QUEUE_CONFIG_INIT(&queueConfig, WdfIoQueueDispatchManual);
 
-    queueConfig.PowerManaged = WdfFalse;
+    queueConfig.PowerManaged = WdfFalse; //必须重新指定？
 
     status = WdfIoQueueCreate(
         fxDevice,
@@ -241,7 +219,7 @@ Return Value:
 
     WDF_IO_QUEUE_CONFIG_INIT(&queueConfig, WdfIoQueueDispatchManual);
 
-    queueConfig.PowerManaged = WdfFalse;
+    queueConfig.PowerManaged = WdfFalse; //必须重新指定？
 
     status = WdfIoQueueCreate(
         fxDevice,
@@ -268,13 +246,13 @@ Return Value:
         &interruptConfig,
         OnInterruptIsr,
         NULL);
-    interruptConfig.PassiveHandling = TRUE;
+    interruptConfig.PassiveHandling = TRUE;//
 
     status = WdfInterruptCreate(
         fxDevice,
-        &interruptConfig,
+        &interruptConfig,//输入
         WDF_NO_OBJECT_ATTRIBUTES,
-        &devContext->InterruptObject);
+        &devContext->InterruptObject);//输出
 
     if (!NT_SUCCESS(status))
     {
@@ -298,22 +276,15 @@ OnContextCleanup(
     )
 /*++
 Routine Description:
-
     Free resources allocated in DriverEntry that are not automatically
     cleaned up framework.
-
 Arguments:
-
     Driver - handle to a WDF Driver object.
-
 Return Value:
-
     VOID.
-
 --*/
 {
     PAGED_CODE();
     
     WPP_CLEANUP(WdfDriverWdmGetDriverObject(Driver));    
 }
-       
