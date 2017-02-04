@@ -65,7 +65,7 @@ RTL_QUERY_REGISTRY_TABLE gResParamsRegTable[] =
     {
         NULL, RTL_QUERY_REGISTRY_DIRECT,
         L"TouchSwapAxes",
-        (PVOID) FIELD_OFFSET(TOUCH_SCREEN_PROPERTIES, TouchSwapAxes),
+        (PVOID) FIELD_OFFSET(TOUCH_SCREEN_PROPERTIES, TouchSwapAxes),//学习
         REG_DWORD,
         &gDefaultProperties.TouchSwapAxes,
         sizeof(ULONG)
