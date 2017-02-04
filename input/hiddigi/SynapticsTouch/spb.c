@@ -1,21 +1,13 @@
 /*++
     Copyright (c) Microsoft Corporation. All Rights Reserved. 
     Sample code. Dealpoint ID #843729.
-
     Module Name:
-
         spb.c
-
     Abstract:
-
         Contains all I2C-specific functionality
-
     Environment:
-
         Kernel mode
-
     Revision History:
-
 --*/
 
 #include "internal.h"
@@ -32,21 +24,15 @@ SpbDoWriteDataSynchronously(
 /*++
  
   Routine Description:
-
     This helper routine abstracts creating and sending an I/O
     request (I2C Write) to the Spb I/O target.
-
   Arguments:
-
     SpbContext - Pointer to the current device context 
     Address    - The I2C register address to write to
     Data       - A buffer to receive the data at at the above address
     Length     - The amount of data to be read from the above address
-
   Return Value:
-
     NTSTATUS Status indicating success or failure
-
 --*/
 {
     PUCHAR buffer;
@@ -93,14 +79,14 @@ SpbDoWriteDataSynchronously(
 
         WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(
             &memoryDescriptor,
-            (PVOID) buffer,
+            (PVOID) buffer,//用buffer已示区分
             length);
     }
 
     //
     // Transaction starts by specifying the address bytes
     //
-    RtlCopyMemory(buffer, &Address, sizeof(Address));
+    RtlCopyMemory(buffer, &Address, sizeof(Address));//为什么是&？
 
     //
     // Address is followed by the data payload
@@ -109,8 +95,8 @@ SpbDoWriteDataSynchronously(
 
     status = WdfIoTargetSendWriteSynchronously(
         SpbContext->SpbIoTarget,
-        NULL,
-        &memoryDescriptor,
+        NULL, //Request=NULL,the framework uses an internal request object
+        &memoryDescriptor,//InputBuffer
         NULL,
         NULL,
         NULL);
@@ -145,27 +131,23 @@ SpbWriteDataSynchronously(
 /*++
  
   Routine Description:
-
     This routine abstracts creating and sending an I/O
     request (I2C Write) to the Spb I/O target and utilizes
     a helper routine to do work inside of locked code.
-
   Arguments:
-
     SpbContext - Pointer to the current device context 
     Address    - The I2C register address to write to
     Data       - A buffer to receive the data at at the above address
     Length     - The amount of data to be read from the above address
-
   Return Value:
-
     NTSTATUS Status indicating success or failure
-
 --*/
 {
     NTSTATUS status;
-
+    
+    //----------------------------------------
     WdfWaitLockAcquire(SpbContext->SpbLock, NULL);
+    //----------------------------------------
 
     status = SpbDoWriteDataSynchronously(
         SpbContext, 
@@ -173,7 +155,9 @@ SpbWriteDataSynchronously(
         Data, 
         Length);
 
+    //----------------------------------------
     WdfWaitLockRelease(SpbContext->SpbLock);
+    //----------------------------------------
 
     return status;
 }
@@ -188,21 +172,15 @@ SpbReadDataSynchronously(
 /*++
  
   Routine Description:
-
     This helper routine abstracts creating and sending an I/O
     request (I2C Read) to the Spb I/O target.
-
   Arguments:
-
     SpbContext - Pointer to the current device context 
     Address    - The I2C register address to read from
     Data       - A buffer to receive the data at at the above address
     Length     - The amount of data to be read from the above address
-
   Return Value:
-
     NTSTATUS Status indicating success or failure
-
 --*/
 {
     PUCHAR buffer;
@@ -267,7 +245,7 @@ SpbReadDataSynchronously(
 
         WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(
             &memoryDescriptor,
-            (PVOID) buffer,
+            (PVOID) buffer,//用buffer已示区分
             Length);
     }
 
@@ -278,7 +256,7 @@ SpbReadDataSynchronously(
         &memoryDescriptor,
         NULL,
         NULL,
-        &bytesRead);
+        &bytesRead);//读的时候需要，写的时候不太需要
 
     if (!NT_SUCCESS(status) || 
         bytesRead != Length)
@@ -299,7 +277,7 @@ SpbReadDataSynchronously(
 exit:
     if (NULL != memory)
     {
-       WdfObjectDelete(memory);
+       WdfObjectDelete(memory);//需要删除本函数创建的长内存
     }
 
     WdfWaitLockRelease(SpbContext->SpbLock);
@@ -315,20 +293,15 @@ SpbTargetDeinitialize(
 /*++
  
   Routine Description:
-
     This helper routine is used to free any members added to the SPB_CONTEXT,
     note the SPB I/O target is parented to the device and will be
     closed and free'd when the device is removed.
  
   Arguments:
-
     FxDevice   - Handle to the framework device object
     SpbContext - Pointer to the current device context 
-
   Return Value:
-
     NTSTATUS Status indicating success or failure
-
 --*/
 {
     UNREFERENCED_PARAMETER(FxDevice);
@@ -353,6 +326,7 @@ SpbTargetDeinitialize(
     }
 }
 
+//创建iotarget并打开之
 NTSTATUS
 SpbTargetInitialize(
     IN WDFDEVICE FxDevice,
@@ -361,20 +335,14 @@ SpbTargetInitialize(
 /*++
  
   Routine Description:
-
     This helper routine opens the Spb I/O target and 
     initializes a request object used for the lifetime
     of communication between this driver and Spb.
-
   Arguments:
-
     FxDevice   - Handle to the framework device object
     SpbContext - Pointer to the current device context 
-
   Return Value:
-
     NTSTATUS Status indicating success or failure
-
 --*/
 {
     WDF_OBJECT_ATTRIBUTES objectAttributes;
@@ -383,13 +351,13 @@ SpbTargetInitialize(
     WCHAR spbDeviceNameBuffer[RESOURCE_HUB_PATH_SIZE];
     NTSTATUS status;
     
-    WDF_OBJECT_ATTRIBUTES_INIT(&objectAttributes);
+    WDF_OBJECT_ATTRIBUTES_INIT(&objectAttributes);//别忘了
     objectAttributes.ParentObject = FxDevice;
 
     status = WdfIoTargetCreate(
         FxDevice,
         &objectAttributes,
-        &SpbContext->SpbIoTarget);
+        &SpbContext->SpbIoTarget);//输出
     
     if (!NT_SUCCESS(status)) 
     {
