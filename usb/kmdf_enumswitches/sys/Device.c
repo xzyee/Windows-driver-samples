@@ -152,7 +152,7 @@ Return Value:
 
     pDeviceContext = GetDeviceContext(Device);
 
-    //
+    // 创建"usb设备句柄"
     // Create a USB device handle so that we can communicate with the
     // underlying USB stack. The WDFUSBDEVICE handle is used to query,
     // configure, and manage all aspects of the USB device.
@@ -170,24 +170,33 @@ Return Value:
                                    USBD_CLIENT_CONTRACT_VERSION_602);
 
         status = WdfUsbTargetDeviceCreateWithParameters(Device,
-                                               &config,
+                                               &config,//上面刚刚初始化的
                                                WDF_NO_OBJECT_ATTRIBUTES,
-                                               &pDeviceContext->UsbDevice);
-
+                                               &pDeviceContext->UsbDevice);//输出
+ 
         if (!NT_SUCCESS(status)) {
             TraceEvents(TRACE_LEVEL_ERROR, DBG_PNP,
                  "WdfUsbTargetDeviceCreateWithParameters failed with Status code %!STATUS!\n", status);
             return status;
         }
     }
-
+ 
+    //"选择配置"使usb设备工作
     WDF_USB_DEVICE_SELECT_CONFIG_PARAMS_INIT_SINGLE_INTERFACE( &configParams);
-
     status = WdfUsbTargetDeviceSelectConfig(pDeviceContext->UsbDevice,
                                         WDF_NO_OBJECT_ATTRIBUTES,
                                         &configParams);
     if(!NT_SUCCESS(status)) {
         WDF_USB_DEVICE_INFORMATION  deviceInfo;
+        
+/*
+typedef struct _WDF_USB_DEVICE_INFORMATION {
+  ULONG                    Size;
+  USBD_VERSION_INFORMATION UsbdVersionInformation;
+  ULONG                    HcdPortCapabilities;
+  ULONG                    Traits;
+} WDF_USB_DEVICE_INFORMATION, *PWDF_USB_DEVICE_INFORMATION;
+*/
 
         TraceEvents(TRACE_LEVEL_ERROR, DBG_PNP,
                         "WdfUsbTargetDeviceSelectConfig failed %!STATUS! \n",
@@ -214,12 +223,19 @@ Return Value:
             }
         }
 
+//typedef enum _WDF_USB_DEVICE_TRAITS { 
+//  WDF_USB_DEVICE_TRAIT_SELF_POWERED         = 0x00000001,
+//  WDF_USB_DEVICE_TRAIT_REMOTE_WAKE_CAPABLE  = 0x00000002,
+//  WDF_USB_DEVICE_TRAIT_AT_HIGH_SPEED        = 0x00000004
+//} WDF_USB_DEVICE_TRAITS;
+
         return status;
     }
 
-    pDeviceContext->UsbInterface =
+    pDeviceContext->UsbInterface =  //该接口句柄在找pipe时用得着，WdfUsbInterfaceGetConfiguredPipe
                 configParams.Types.SingleInterface.ConfiguredUsbInterface;
 
+    //配置连续reader
     status = OsrFxConfigContReaderForInterruptEndPoint(pDeviceContext);
 
     TraceEvents(TRACE_LEVEL_INFORMATION, DBG_PNP, "<-- EvtDevicePrepareHardware\n");
@@ -275,7 +291,8 @@ Return Value:
     TraceEvents(TRACE_LEVEL_INFORMATION, DBG_POWER,
                 "-->OsrFxEvtEvtDeviceD0Entry - coming from %s\n",
                 DbgDevicePowerString(PreviousState));
-
+                
+    //starts sending queued requests to a local or remote I/O target
     status = WdfIoTargetStart(WdfUsbTargetDeviceGetIoTarget(pDeviceContext->UsbDevice));
 
     TraceEvents(TRACE_LEVEL_INFORMATION, DBG_POWER, "<--OsrFxEvtEvtDeviceD0Entry\n");
@@ -337,8 +354,18 @@ Return Value:
 
     pDeviceContext = GetDeviceContext(Device);
 
+    //stop sending queued requests to a local or remote I/O target
     WdfIoTargetStop(WdfUsbTargetDeviceGetIoTarget(pDeviceContext->UsbDevice),
-                    WdfIoTargetCancelSentIo);
+                    WdfIoTargetCancelSentIo/*枚举*/);
+ 
+/*
+typedef enum _WDF_IO_TARGET_SENT_IO_ACTION { 
+  WdfIoTargetSentIoUndefined          = 0,
+  WdfIoTargetCancelSentIo             = 1,
+  WdfIoTargetWaitForSentIoToComplete  = 2,
+  WdfIoTargetLeaveSentIoPending       = 3
+} WDF_IO_TARGET_SENT_IO_ACTION;
+*/
 
     TraceEvents(TRACE_LEVEL_INFORMATION, DBG_POWER, "<--OsrFxEvtDeviceD0Exit\n");
 
